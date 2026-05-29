@@ -79,7 +79,7 @@ def assemble():
                     color='white',
                     stroke_color='black',
                     stroke_width=2,
-                    method='label'
+                    method='caption'
                 )
                 txt = txt.with_position(('center', 1000)) \
                          .with_start(sub['start']) \
