@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# กำหนดพาธฟอนต์ที่อัปโหลดไว้ในโฟลเดอร์เดียวกับไฟล์นี้
-FONT_FILENAME = "Sarabun-Regular.ttf"
+# กำหนดพาธฟอนต์แบบสมบูรณ์ (Absolute Path) เพื่อให้ Linux หาเจอแน่นอน
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FONT_FILENAME = os.path.join(BASE_DIR, "Sarabun-Regular.ttf")
 
 # ========== API ประกอบวิดีโอ ==========
 @app.route('/assemble', methods=['POST'])
@@ -69,12 +70,14 @@ def assemble():
         txt_clips = []
         for sub in subtitles:
             try:
-                # ตรวจสอบว่ามีไฟล์ฟอนต์จริงไหม
+                # ตรวจสอบว่ามีไฟล์ฟอนต์ตามที่ระบุในพาธเต็มจริงไหม
                 font_to_use = FONT_FILENAME if os.path.exists(FONT_FILENAME) else None
+                if not font_to_use:
+                    logger.warning(f"ไม่พบไฟล์ฟอนต์ที่พาธ: {FONT_FILENAME}")
                 
                 txt = TextClip(
                     text=sub['text'],
-                    font=font_to_use, # ใช้ไฟล์ที่อัปโหลด
+                    font=font_to_use, # เรียกใช้ตัวแปรพาธเต็ม
                     font_size=40,
                     color='white',
                     stroke_color='black',
@@ -86,7 +89,7 @@ def assemble():
                          .with_duration(sub['end'] - sub['start'])
                 txt_clips.append(txt)
             except Exception as e:
-                logger.warning(f"สร้างซับไตเติลไม่ได้: {e}")
+                logger.warning(f"สร้างซับไตเติลไม่ได้สำหรับคำว่า '{sub['text']}': {e}")
 
         # --- ประกอบคลิป ---
         final = CompositeVideoClip([video_clip] + txt_clips).with_audio(audio_clip)
