@@ -45,36 +45,70 @@ def download_thai_font():
         logger.error(f"Failed to download font: {e}")
         return False
 
-# ดาวน์โหลดฟอนต์ตอน start (ถ้าไม่สำเร็จจะใช้ฟอนต์ fallback)
+# ดาวน์โหลดฟอนต์ตอน start
 font_ready = download_thai_font()
 if not font_ready:
     logger.warning("Font download failed, will try system font 'DejaVu Sans'")
-    FONT_PATH = "DejaVu-Sans"  # fallback สำหรับกรณีไม่มีฟอนต์ไทย (จะได้สี่เหลี่ยม)
+    FONT_PATH = "DejaVu-Sans"
 
 # ========== API ประกอบวิดีโอ ==========
 @app.route('/assemble', methods=['POST'])
 def assemble():
     try:
         data = request.json
-        audio_url = data['audio_url']
-        subtitles = data['subtitles']
-        bg_video_url = data.get('bg_video_url')
+        audio_url = data.get('audio_url', '').strip()
+        subtitles = data.get('subtitles', [])
+        bg_video_url = data.get('bg_video_url', '').strip()
 
-        # --- ดาวน์โหลดไฟล์เสียง ---
+        if not audio_url:
+            return {"error": "ไม่พบพารามิเตอร์ audio_url ส่งมาจาก n8n"}, 400
+
+        # --- ดาวน์โหลดไฟล์เสียง + ตรวจสอบความถูกต้อง ---
         audio_path = os.path.join(tempfile.gettempdir(), 'audio.mp3')
-        with open(audio_path, 'wb') as f:
-            f.write(requests.get(audio_url).content)
+        try:
+            logger.info(f"กำลังดาวน์โหลดไฟล์เสียงจาก: {audio_url}")
+            r_audio = requests.get(audio_url, timeout=30)
+            r_audio.raise_for_status()
+            
+            # เช็คว่าสิ่งที่ดาวน์โหลดมา ไม่ใช่หน้าเว็บพัง (HTML) หรือข้อความ Error
+            content_peek = r_audio.content[:200]
+            if b"<!DOCTYPE" in content_peek or b"<html" in content_peek.lower():
+                return {
+                    "error": "ไฟล์เสียงพัง! ลิงก์ที่ n8n ส่งมาไม่ใช่ไฟล์เสียง MP3 แต่เป็นหน้าเว็บ HTML (อาจเกิดจากโหนด TTS หรือ Catbox พัง/หมดอายุ)",
+                    "debug_url": audio_url
+                }, 400
+                
+            with open(audio_path, 'wb') as f:
+                f.write(r_audio.content)
+        except Exception as e:
+            return {"error": f"ดาวน์โหลดไฟล์เสียงจากต้นทางไม่สำเร็จ ลิงก์อาจผิดพลาด: {str(e)}", "debug_url": audio_url}, 400
+
+        # โหลดไฟล์เสียงเข้า MoviePy
         audio_clip = AudioFileClip(audio_path)
         duration = audio_clip.duration
 
-        # --- วิดีโอพื้นหลัง ---
+        # --- วิดีโอพื้นหลัง + ตรวจสอบความถูกต้อง ---
         if bg_video_url:
             bg_path = os.path.join(tempfile.gettempdir(), 'bg.mp4')
-            with open(bg_path, 'wb') as f:
-                f.write(requests.get(bg_video_url).content)
-            
-            # เรียกใช้ fx.Loop และ .resized ให้ตรงตามโครงสร้างของเวอร์ชันใหม่
-            video_clip = VideoFileClip(bg_path).with_effects([fx.Loop(duration=duration)]).resized(width=1080, height=1920)
+            try:
+                logger.info(f"กำลังดาวน์โหลดวิดีโอพื้นหลังจาก: {bg_video_url}")
+                r_bg = requests.get(bg_video_url, timeout=30)
+                r_bg.raise_for_status()
+                
+                content_peek_bg = r_bg.content[:200]
+                if b"<!DOCTYPE" in content_peek_bg or b"<html" in content_peek_bg.lower():
+                    return {
+                        "error": "ไฟล์วิดีโอพัง! ลิงก์จาก Pexels ส่งกลับมาเป็นหน้าเว็บ HTML ไม่ใช่ไฟล์วิดีโอจริง",
+                        "debug_url": bg_video_url
+                    }, 400
+                    
+                with open(bg_path, 'wb') as f:
+                    f.write(r_bg.content)
+                
+                video_clip = VideoFileClip(bg_path).with_effects([fx.Loop(duration=duration)]).resized(width=1080, height=1920)
+            except Exception as e:
+                logger.warning(f"โหลดวิดีโอพื้นหลังไม่สำเร็จ เปลี่ยนไปใช้พื้นหลังดำ: {e}")
+                video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
         else:
             video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
 
@@ -82,7 +116,6 @@ def assemble():
         txt_clips = []
         for sub in subtitles:
             try:
-                # ใช้ method='label' เพื่อทำงานผ่าน Pillow
                 txt = TextClip(
                     text=sub['text'],
                     font=FONT_PATH,
@@ -97,8 +130,7 @@ def assemble():
                          .with_duration(sub['end'] - sub['start'])
                 txt_clips.append(txt)
             except Exception as e:
-                warning_msg = f"Could not create subtitle for {sub['text']}: {e}"
-                logger.warning(warning_msg)
+                logger.warning(f"Could not create subtitle for {sub['text']}: {e}")
 
         # --- ประกอบคลิป ---
         final = CompositeVideoClip([video_clip] + txt_clips).with_audio(audio_clip)
