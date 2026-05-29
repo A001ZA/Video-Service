@@ -17,7 +17,7 @@ from moviepy import (
     ColorClip,
     TextClip,
 )
-from moviepy.video.fx import Loop  # นำเข้า Loop สำหรับ MoviePy v2.0+
+from moviepy.video import fx  # นำเข้าโมดูล fx สำหรับ MoviePy v2.0+
 
 # ========== ตั้งค่า logging ==========
 logging.basicConfig(level=logging.INFO)
@@ -73,8 +73,8 @@ def assemble():
             with open(bg_path, 'wb') as f:
                 f.write(requests.get(bg_video_url).content)
             
-            # แก้ไขตรงจุดนี้ให้รองรับ MoviePy v2.0+ (.with_effects และ .resized)
-            video_clip = VideoFileClip(bg_path).with_effects([Loop(duration=duration)]).resized(width=1080, height=1920)
+            # เรียกใช้ fx.Loop และ .resized ให้ตรงตามโครงสร้างของเวอร์ชันใหม่
+            video_clip = VideoFileClip(bg_path).with_effects([fx.Loop(duration=duration)]).resized(width=1080, height=1920)
         else:
             video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
 
