@@ -17,6 +17,7 @@ from moviepy import (
     ColorClip,
     TextClip,
 )
+from moviepy.video.fx import Loop  # นำเข้า Loop สำหรับ MoviePy v2.0+
 
 # ========== ตั้งค่า logging ==========
 logging.basicConfig(level=logging.INFO)
@@ -71,7 +72,9 @@ def assemble():
             bg_path = os.path.join(tempfile.gettempdir(), 'bg.mp4')
             with open(bg_path, 'wb') as f:
                 f.write(requests.get(bg_video_url).content)
-            video_clip = VideoFileClip(bg_path).loop(duration=duration).resize(width=1080, height=1920)
+            
+            # แก้ไขตรงจุดนี้ให้รองรับ MoviePy v2.0+ (.with_effects และ .resized)
+            video_clip = VideoFileClip(bg_path).with_effects([Loop(duration=duration)]).resized(width=1080, height=1920)
         else:
             video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
 
@@ -94,7 +97,8 @@ def assemble():
                          .with_duration(sub['end'] - sub['start'])
                 txt_clips.append(txt)
             except Exception as e:
-                logger.warning(f"Could not create subtitle for {sub['text']}: {e}")
+                warning_msg = f"Could not create subtitle for {sub['text']}: {e}"
+                logger.warning(warning_msg)
 
         # --- ประกอบคลิป ---
         final = CompositeVideoClip([video_clip] + txt_clips).with_audio(audio_clip)
@@ -112,7 +116,8 @@ def assemble():
         return send_file(out_path, mimetype='video/mp4', as_attachment=True, download_name='clip.mp4')
 
     except Exception as e:
-        logger.error(f"Error in assembly: {traceback.format_exc()}")
+        error_msg = f"Error in assembly: {traceback.format_exc()}"
+        logger.error(error_msg)
         return {"error": str(e)}, 500
 
 if __name__ == '__main__':
