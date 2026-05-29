@@ -87,7 +87,7 @@ def assemble():
         audio_clip = AudioFileClip(audio_path)
         duration = audio_clip.duration
 
-        # --- วิดีโอพื้นหลัง + ตรวจสอบความถูกต้อง ---
+        # --- วิดีโอพื้นหลัง (ปรับขนาดลงเป็น 720x1280 เพื่อลดการใช้ CPU บน Free Tier) ---
         if bg_video_url:
             bg_path = os.path.join(tempfile.gettempdir(), 'bg.mp4')
             try:
@@ -105,21 +105,22 @@ def assemble():
                 with open(bg_path, 'wb') as f:
                     f.write(r_bg.content)
                 
-                video_clip = VideoFileClip(bg_path).with_effects([fx.Loop(duration=duration)]).resized(width=1080, height=1920)
+                # เปลี่ยนจากขนาด 1080x1920 เป็น 720x1280 เพื่อเซฟแรงเครื่องประมวลผล
+                video_clip = VideoFileClip(bg_path).with_effects([fx.Loop(duration=duration)]).resized(width=720, height=1280)
             except Exception as e:
                 logger.warning(f"โหลดวิดีโอพื้นหลังไม่สำเร็จ เปลี่ยนไปใช้พื้นหลังดำ: {e}")
-                video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
+                video_clip = ColorClip(size=(720, 1280), color=(0, 0, 0), duration=duration)
         else:
-            video_clip = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=duration)
+            video_clip = ColorClip(size=(720, 1280), color=(0, 0, 0), duration=duration)
 
-        # --- ซับไตเติล ---
+        # --- ซับไตเติล (ปรับขนาดฟอนต์เหลือ 40 ให้พอดีกับสัดส่วนจอ 720p) ---
         txt_clips = []
         for sub in subtitles:
             try:
                 txt = TextClip(
                     text=sub['text'],
                     font=FONT_PATH,
-                    font_size=60,
+                    font_size=40,
                     color='white',
                     stroke_color='black',
                     stroke_width=2,
@@ -142,7 +143,7 @@ def assemble():
             audio_codec='aac',
             fps=24,
             preset='ultrafast',
-            threads=2
+            threads=1  # บังคับใช้ 1 เทรด ป้องกันระบบ Render ทำการ Throttling บีบความเร็วเราลง
         )
 
         return send_file(out_path, mimetype='video/mp4', as_attachment=True, download_name='clip.mp4')
