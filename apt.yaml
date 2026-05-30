@@ -1,4 +1,0 @@
-packages:
-  - imagemagick
-  - libmagickwand-dev
-  - libfreetype6-dev
