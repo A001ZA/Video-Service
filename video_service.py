@@ -252,4 +252,5 @@ def assemble():
 if __name__ == '__main__':
     # ดาวน์โหลดฟอนต์ตอน startup เลย (ไม่ต้องรอ request แรก)
     ensure_font()
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
