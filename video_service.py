@@ -39,12 +39,9 @@ SUBTITLE_Y     = 1000
 SUBTITLE_BOX_W = VIDEO_W - 80
 
 # ========== Job store (in-memory) ==========
-# jobs[job_id] = {"status": "pending"|"processing"|"done"|"error", "error": str, "path": str}
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 
-
-# ---------- helpers ----------
 
 def ensure_font() -> bool:
     if os.path.exists(FONT_PATH):
@@ -132,8 +129,6 @@ def make_subtitle_clips(subtitles: list, font_available: bool) -> list:
     return clips
 
 
-# ---------- background worker ----------
-
 def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
     with jobs_lock:
         jobs[job_id]["status"] = "processing"
@@ -149,8 +144,8 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
         duration   = audio_clip.duration
         logger.info(f"[{job_id}] ความยาวเสียง: {duration:.2f}s")
 
-        video_clip  = make_background(bg_video_url, duration)
-        txt_clips   = make_subtitle_clips(subtitles, font_ok)
+        video_clip = make_background(bg_video_url, duration)
+        txt_clips  = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
 
         final = CompositeVideoClip([video_clip] + txt_clips).with_audio(audio_clip)
@@ -158,8 +153,12 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
         out_path = os.path.join(tempfile.gettempdir(), f"final_{job_id}.mp4")
         final.write_videofile(
             out_path,
-            codec="libx264", audio_codec="aac",
-            fps=15, preset="ultrafast", threads=2, logger=None,
+            codec="libx264",
+            audio_codec="aac",
+            fps=15,
+            preset="ultrafast",
+            threads=2,
+            logger=None,
             ffmpeg_params=["-b:v", "800k", "-b:a", "96k", "-maxrate", "800k", "-bufsize", "1600k"]
         )
 
@@ -176,8 +175,6 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
             jobs[job_id]["error"]  = err
 
 
-# ========== Routes ==========
-
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "font_ready": os.path.exists(FONT_PATH)}), 200
@@ -185,7 +182,6 @@ def health():
 
 @app.route("/assemble", methods=["POST"])
 def assemble():
-    """รับงานแล้วตอบ job_id ทันที ไม่รอ render"""
     data = request.json
     if not data:
         return jsonify({"error": "ไม่พบ JSON body"}), 400
@@ -214,21 +210,19 @@ def assemble():
 
 @app.route("/status/<job_id>", methods=["GET"])
 def status(job_id: str):
-    """เช็คสถานะ job — n8n จะ poll endpoint นี้"""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
         return jsonify({"error": "ไม่พบ job"}), 404
     return jsonify({
-        "job_id":  job_id,
-        "status":  job["status"],   # pending | processing | done | error
-        "error":   job.get("error"),
+        "job_id": job_id,
+        "status": job["status"],
+        "error":  job.get("error"),
     }), 200
 
 
 @app.route("/result/<job_id>", methods=["GET"])
 def result(job_id: str):
-    """ดาวน์โหลดไฟล์วิดีโอเมื่อ status == done"""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
@@ -237,13 +231,12 @@ def result(job_id: str):
         return jsonify({"error": f"ยังไม่เสร็จ status={job['status']}"}), 425
     return send_file(
         job["path"],
-        mimetype="video/mp4",final.write_videofile(
+        mimetype="video/mp4",
         as_attachment=True,
         download_name="clip.mp4",
     )
 
 
-# ========== Start ==========
 if __name__ == "__main__":
     ensure_font()
     port = int(os.environ.get("PORT", 10000))
