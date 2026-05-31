@@ -160,6 +160,7 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
             out_path,
             codec="libx264", audio_codec="aac",
             fps=15, preset="ultrafast", threads=2, logger=None,
+            ffmpeg_params=["-b:v", "800k", "-b:a", "96k", "-maxrate", "800k", "-bufsize", "1600k"]
         )
 
         logger.info(f"[{job_id}] Render สำเร็จ")
@@ -236,7 +237,7 @@ def result(job_id: str):
         return jsonify({"error": f"ยังไม่เสร็จ status={job['status']}"}), 425
     return send_file(
         job["path"],
-        mimetype="video/mp4",
+        mimetype="video/mp4",final.write_videofile(
         as_attachment=True,
         download_name="clip.mp4",
     )
