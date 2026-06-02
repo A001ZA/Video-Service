@@ -120,9 +120,9 @@ def make_subtitle_clips(subtitles: list, font_available: bool) -> list:
     clips = []
     font_arg = FONT_PATH if font_available else None
     for i, sub in enumerate(subtitles):
-        text = sub.get("text", "").strip()
-        start = sub.get("start", 0)
-        end   = sub.get("end", start + 1)
+        text  = sub.get("text", "").strip()
+        start = float(sub.get("start", 0))
+        end   = float(sub.get("end", start + 1))
         if not text:
             continue
         clip = None
@@ -170,13 +170,7 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_urls: list
 
         video_clip = make_background(bg_video_urls, duration)
 
-        # คำนวณ timestamp อัตโนมัติจาก duration จริง
-        if subtitles:
-            per = duration / len(subtitles)
-            for i, sub in enumerate(subtitles):
-                sub["start"] = round(i * per, 2)
-                sub["end"]   = round((i + 1) * per, 2)
-
+        # ใช้ timestamp จาก Gemini โดยตรง ไม่คำนวณเอง
         txt_clips = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
 
