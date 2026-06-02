@@ -69,7 +69,6 @@ def download_file(url: str, dest: str, label: str = "ไฟล์") -> bool:
 
 
 def resize_and_crop(clip):
-    """Resize และ crop คลิปให้ได้ขนาด 720x1280 พอดี"""
     if (clip.w / clip.h) > (VIDEO_W / VIDEO_H):
         clip = clip.resized(height=VIDEO_H)
     else:
@@ -82,12 +81,7 @@ def resize_and_crop(clip):
 
 
 def make_background(bg_video_urls: list, duration: float):
-    """
-    ดาวน์โหลดหลายคลิปแล้วต่อกัน ให้ครอบคลุม duration ทั้งหมด
-    ถ้าโหลดไม่ได้เลย → ใช้พื้นหลังดำ
-    """
     loaded_clips = []
-
     for i, url in enumerate(bg_video_urls):
         if not url:
             continue
@@ -105,11 +99,8 @@ def make_background(bg_video_urls: list, duration: float):
         logger.warning("ไม่มีคลิปพื้นหลัง → ใช้สีดำ")
         return ColorClip(size=(VIDEO_W, VIDEO_H), color=(0, 0, 0), duration=duration)
 
-    # ต่อคลิปกันจนครบ duration
-    # ถ้าคลิปรวมสั้นกว่า duration → loop ชุดคลิปซ้ำ
     total = sum(c.duration for c in loaded_clips)
     if total < duration:
-        # วนซ้ำชุดคลิปจนยาวพอ
         repeated = []
         accumulated = 0.0
         while accumulated < duration:
@@ -178,12 +169,13 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_urls: list
         logger.info(f"[{job_id}] ความยาวเสียง: {duration:.2f}s")
 
         video_clip = make_background(bg_video_urls, duration)
+
         # คำนวณ timestamp อัตโนมัติจาก duration จริง
-if subtitles:
-    per = duration / len(subtitles)
-    for i, sub in enumerate(subtitles):
-        sub["start"] = round(i * per, 2)
-        sub["end"]   = round((i + 1) * per, 2)
+        if subtitles:
+            per = duration / len(subtitles)
+            for i, sub in enumerate(subtitles):
+                sub["start"] = round(i * per, 2)
+                sub["end"]   = round((i + 1) * per, 2)
 
         txt_clips = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
@@ -228,7 +220,6 @@ def assemble():
 
     audio_url     = data.get("audio_url", "").strip()
     subtitles     = data.get("subtitles", [])
-    # รองรับทั้ง bg_video_urls (array) และ bg_video_url (string เดิม)
     bg_video_urls = data.get("bg_video_urls", [])
     if not bg_video_urls:
         single = data.get("bg_video_url", "").strip()
