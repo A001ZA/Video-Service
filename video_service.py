@@ -178,7 +178,14 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_urls: list
         logger.info(f"[{job_id}] ความยาวเสียง: {duration:.2f}s")
 
         video_clip = make_background(bg_video_urls, duration)
-        txt_clips  = make_subtitle_clips(subtitles, font_ok)
+        # คำนวณ timestamp อัตโนมัติจาก duration จริง
+if subtitles:
+    per = duration / len(subtitles)
+    for i, sub in enumerate(subtitles):
+        sub["start"] = round(i * per, 2)
+        sub["end"]   = round((i + 1) * per, 2)
+
+        txt_clips = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
 
         final = CompositeVideoClip([video_clip] + txt_clips).with_audio(audio_clip)
