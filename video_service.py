@@ -18,27 +18,24 @@ from moviepy import (
     CompositeVideoClip,
     ColorClip,
     TextClip,
+    concatenate_videoclips,
 )
 from moviepy.video import fx
 
-# ========== Logging ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ========== Font ==========
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_PATH = os.path.join(BASE_DIR, "Sarabun-Regular.ttf")
 FONT_URL  = "https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Regular.ttf"
 
-# ========== Video config ==========
 VIDEO_W        = 720
 VIDEO_H        = 1280
 SUBTITLE_Y     = 1000
 SUBTITLE_BOX_W = VIDEO_W - 80
 
-# ========== Job store (in-memory) ==========
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 
@@ -71,25 +68,61 @@ def download_file(url: str, dest: str, label: str = "ไฟล์") -> bool:
         return False
 
 
-def make_background(bg_video_url: str, duration: float):
-    if bg_video_url:
-        bg_path = os.path.join(tempfile.gettempdir(), "bg.mp4")
-        if download_file(bg_video_url, bg_path, "วิดีโอพื้นหลัง"):
+def resize_and_crop(clip):
+    """Resize และ crop คลิปให้ได้ขนาด 720x1280 พอดี"""
+    if (clip.w / clip.h) > (VIDEO_W / VIDEO_H):
+        clip = clip.resized(height=VIDEO_H)
+    else:
+        clip = clip.resized(width=VIDEO_W)
+    clip = clip.cropped(
+        x_center=clip.w / 2, y_center=clip.h / 2,
+        width=VIDEO_W, height=VIDEO_H
+    )
+    return clip
+
+
+def make_background(bg_video_urls: list, duration: float):
+    """
+    ดาวน์โหลดหลายคลิปแล้วต่อกัน ให้ครอบคลุม duration ทั้งหมด
+    ถ้าโหลดไม่ได้เลย → ใช้พื้นหลังดำ
+    """
+    loaded_clips = []
+
+    for i, url in enumerate(bg_video_urls):
+        if not url:
+            continue
+        dest = os.path.join(tempfile.gettempdir(), f"bg_{i}.mp4")
+        if download_file(url, dest, f"วิดีโอพื้นหลัง[{i}]"):
             try:
-                clip = VideoFileClip(bg_path)
-                clip = clip.with_effects([fx.Loop(duration=duration)])
-                if (clip.w / clip.h) > (VIDEO_W / VIDEO_H):
-                    clip = clip.resized(height=VIDEO_H)
-                else:
-                    clip = clip.resized(width=VIDEO_W)
-                clip = clip.cropped(
-                    x_center=clip.w / 2, y_center=clip.h / 2,
-                    width=VIDEO_W, height=VIDEO_H
-                )
-                return clip.with_duration(duration)
+                clip = VideoFileClip(dest)
+                clip = resize_and_crop(clip)
+                loaded_clips.append(clip)
+                logger.info(f"โหลดคลิป[{i}] สำเร็จ ความยาว {clip.duration:.1f}s")
             except Exception as e:
-                logger.warning(f"ประมวลผลพื้นหลังไม่สำเร็จ: {e}")
-    return ColorClip(size=(VIDEO_W, VIDEO_H), color=(0, 0, 0), duration=duration)
+                logger.warning(f"ประมวลผลคลิป[{i}] ไม่สำเร็จ: {e}")
+
+    if not loaded_clips:
+        logger.warning("ไม่มีคลิปพื้นหลัง → ใช้สีดำ")
+        return ColorClip(size=(VIDEO_W, VIDEO_H), color=(0, 0, 0), duration=duration)
+
+    # ต่อคลิปกันจนครบ duration
+    # ถ้าคลิปรวมสั้นกว่า duration → loop ชุดคลิปซ้ำ
+    total = sum(c.duration for c in loaded_clips)
+    if total < duration:
+        # วนซ้ำชุดคลิปจนยาวพอ
+        repeated = []
+        accumulated = 0.0
+        while accumulated < duration:
+            for c in loaded_clips:
+                repeated.append(c)
+                accumulated += c.duration
+                if accumulated >= duration:
+                    break
+        loaded_clips = repeated
+
+    bg = concatenate_videoclips(loaded_clips, method="compose")
+    bg = bg.subclipped(0, duration)
+    return bg
 
 
 def make_subtitle_clips(subtitles: list, font_available: bool) -> list:
@@ -129,7 +162,7 @@ def make_subtitle_clips(subtitles: list, font_available: bool) -> list:
     return clips
 
 
-def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
+def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_urls: list):
     with jobs_lock:
         jobs[job_id]["status"] = "processing"
 
@@ -144,7 +177,7 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_url: str):
         duration   = audio_clip.duration
         logger.info(f"[{job_id}] ความยาวเสียง: {duration:.2f}s")
 
-        video_clip = make_background(bg_video_url, duration)
+        video_clip = make_background(bg_video_urls, duration)
         txt_clips  = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
 
@@ -186,9 +219,14 @@ def assemble():
     if not data:
         return jsonify({"error": "ไม่พบ JSON body"}), 400
 
-    audio_url    = data.get("audio_url", "").strip()
-    subtitles    = data.get("subtitles", [])
-    bg_video_url = data.get("bg_video_url", "").strip()
+    audio_url     = data.get("audio_url", "").strip()
+    subtitles     = data.get("subtitles", [])
+    # รองรับทั้ง bg_video_urls (array) และ bg_video_url (string เดิม)
+    bg_video_urls = data.get("bg_video_urls", [])
+    if not bg_video_urls:
+        single = data.get("bg_video_url", "").strip()
+        if single:
+            bg_video_urls = [single]
 
     if not audio_url:
         return jsonify({"error": "ไม่พบ audio_url"}), 400
@@ -199,7 +237,7 @@ def assemble():
 
     t = threading.Thread(
         target=render_job,
-        args=(job_id, audio_url, subtitles, bg_video_url),
+        args=(job_id, audio_url, subtitles, bg_video_urls),
         daemon=True,
     )
     t.start()
