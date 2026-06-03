@@ -116,6 +116,35 @@ def make_background(bg_video_urls: list, duration: float):
     return bg
 
 
+def calc_timestamps(subtitles: list, duration: float) -> list:
+    """
+    คำนวณ timestamp จากสัดส่วนจำนวนคำของแต่ละประโยค
+    เทียบกับ duration จริงของเสียง — ซับจะตรงเสียงเสมอ
+    """
+    if not subtitles:
+        return subtitles
+
+    # นับจำนวนคำแต่ละบรรทัด (ภาษาไทยไม่มี space แบ่งคำ ใช้ความยาวตัวอักษรแทน)
+    lengths = []
+    for sub in subtitles:
+        text = sub.get("text", "")
+        # ถ้ามี space (มีคำภาษาอังกฤษปน) นับ word ปกติ ถ้าไม่มีใช้ความยาวตัวอักษร
+        words = text.split()
+        lengths.append(max(len(words), len(text) // 4, 1))
+
+    total = sum(lengths)
+    elapsed = 0.0
+    for i, sub in enumerate(subtitles):
+        ratio        = lengths[i] / total
+        sub_duration = round(ratio * duration, 2)
+        sub["start"] = round(elapsed, 2)
+        sub["end"]   = round(elapsed + sub_duration, 2)
+        elapsed     += sub_duration
+
+    logger.info(f"คำนวณ timestamp {len(subtitles)} บรรทัด รวม {elapsed:.2f}s / {duration:.2f}s")
+    return subtitles
+
+
 def make_subtitle_clips(subtitles: list, font_available: bool) -> list:
     clips = []
     font_arg = FONT_PATH if font_available else None
@@ -170,7 +199,9 @@ def render_job(job_id: str, audio_url: str, subtitles: list, bg_video_urls: list
 
         video_clip = make_background(bg_video_urls, duration)
 
-        # ใช้ timestamp จาก Gemini โดยตรง ไม่คำนวณเอง
+        # คำนวณ timestamp จากสัดส่วนจำนวนคำ ตรงกับ duration เสียงจริงเสมอ
+        subtitles = calc_timestamps(subtitles, duration)
+
         txt_clips = make_subtitle_clips(subtitles, font_ok)
         logger.info(f"[{job_id}] ซับไตเติล {len(txt_clips)}/{len(subtitles)} บรรทัด")
 
